@@ -1,0 +1,48 @@
+rm(list=ls())
+
+library(readxl)
+
+setwd("/home/middle/SMAP_DESK_COURSE/EsquemaSMAP_nuvem/")
+#source("GeraPSAT_sub.R")
+
+date_file <- "20200810"
+#datename <- "xtodayx"
+#datePOSIXct <- as.POSIXct(datename, format="%Y%m%d", tz="GMT")
+#reformat <- paste(substr(datename,7,8), substr(datename,5,6), sep="")
+
+
+
+### diretorios para acessar
+dir.in <- "/home/middle/SMAP_DESK_COURSE/EsquemaSMAP_nuvem/tmp/ECMWF/"
+dir.out <- paste(getwd(),"/Modelos_Chuva_Vazao_", date_file, "/SMAP/", sep="")
+
+files.full <- list.files(path = dir.in,pattern="PMEDIA_", full.names = T)
+#dz<-lapply(files.full,function(x) read.table(x, header=F))
+dz<-lapply(files.full,function(x) readLines(x))
+
+lookup.xlsx <- read_xlsx("Configuracao.xlsx",sheet = "Plan1")
+bacias <- lookup.xlsx$`Macro-Bacia`
+bacias[bacias=="Sao Francisco"] <- "SaoFrancisco"
+unbacias <- unique(bacias)
+unbacias[unbacias=="Sao Francisco"] <- "SaoFrancisco"
+
+for(i in 1:length(unbacias)){
+  
+  saida <- list()  
+  idx <- which(bacias %in% unbacias[i])
+  saida <- lapply(dz,function(x) x[idx])
+  system(paste("mkdir -p ",dir.out, unbacias[i], "/ARQ_ENTRADA/ECMWF", sep=""))
+  system(paste("rm -f ",dir.out, unbacias[i], "/ARQ_ENTRADA/ECMWF/PMEDIA_*", sep=""))
+  
+  for(j in 1:length(saida)){
+    #if(unbacias[i] != "Sao Francisco"){
+      newname <- paste(dir.out, unbacias[i], "/ARQ_ENTRADA/ECMWF/PMEDIA_ECMWF_", substr(files.full[j],nchar(files.full[j])-17,nchar(files.full[j])), sep="")
+    #} else{
+    #  newname <- paste(dir.out, "SaoFrancisco", "/ARQ_ENTRADA/PMEDIA_ORIG_", substr(files.full[j],nchar(files.full[j])-17,nchar(files.full[j])), sep="")
+    #}
+    
+    write.table(saida[[j]], file=newname, row.names = F, col.names = F, quote = F)
+    
+  }
+}
+
