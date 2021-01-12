@@ -1,0 +1,311 @@
+# Calcula a media dos trechos p o modelo G(E)FS 100km
+
+# limpa as variaveis definidas
+rm(list=ls())
+
+# bibliotecas
+library(sgeostat)
+library(readxl)
+
+#setwd("/home/leo/Documents/RemoveViesNuvem/")
+
+# caminhos
+# arquivo de configuracao
+
+# arquivo de configuracao
+file.xlsx<-paste0(getwd(),"/Parametros/Configuracao.xlsx")
+
+# caminho onde sera escrito o arquivo de previsao
+caminhoinputrem<-paste0(getwd(),"/Trabalho")
+
+# caminho dos contornos
+caminhocontornos<-paste0(getwd(),"/Parametros/Contornos/ETA40")
+
+# caminho das previsoes em pontos de grade (default) do GEFS1
+caminhoprevisao.GEFS1100<- paste0(getwd(),"/Arq_Entrada/Previsao/GEFS1")
+
+# arquivo log
+arq_log<- paste0(getwd(),"/log.txt")
+write("-----Calculando precipitacao media do GEFS1 nas bacias-----",file=arq_log,append=TRUE)
+
+# definicao de numero maximo de linhas (# de dias armazenados no aquivo de previsao: ntotdaysprev)
+# e colunas (dias de previsao armazenados no arquivo de previsao: nmaxcol)
+nmaxcol <- 12
+ntotdaysprev <- 200
+
+# datas
+dateciend <- (Sys.Date())
+# caso necessite forçar a data para rodar um dia espec?fico,
+# descomentar a linha abaixo
+# dateciend<-as.Date("2019-08-01")
+
+# funcoes usadas:
+# debug stop function
+foo <- function(){
+  n1<-readline(prompt="Enter skip 1: " )
+  #  n2<-readline(prompt="Enter skip 2: " )
+  n1<-as.integer(n1)
+  #  n2<-as.integer(n2)
+  #  c(n1, n2)
+  c(n1)
+}
+
+# trailing character names...
+trim.trailing <- function (x) sub("\\s+$", "", x)
+
+# undef
+und<--999.9
+
+lookup.xlsx <- read_xlsx(file.xlsx,sheet = "Plan1")
+input.bacias<-as.data.frame(matrix(NA_character_,nrow=length(lookup.xlsx$'Latitude'),ncol=2),stringsAsFactors = FALSE)
+colnames(input.bacias) <- c("bacia", "subbacia")
+
+for (i in 1:length(lookup.xlsx$Latitude)){
+  input.bacias[i,1]<-lookup.xlsx$'Macro-Bacia'[i]
+  input.bacias[i,2]<-lookup.xlsx$'Nome'[i]
+}
+
+# capturar o nome do bln e csv no arquivo de configuracao, fazer as medias para 
+# cada subbacia e escrever no formato remocao de vies
+for (count.bac in seq(from=1, to=length(lookup.xlsx$'Latitude'), by=1)){
+  print(count.bac)
+  write(paste0("[",count.bac,"] GEFS1"),arq_log,append = TRUE)
+  check.contornos <- lookup.xlsx[trim.trailing(as.character(lookup.xlsx$'Macro-Bacia')) == input.bacias$bacia[count.bac] & trim.trailing(as.character(lookup.xlsx$'Nome'))==input.bacias$subbacia[count.bac],]
+  
+  # por precaucao, checar se as dimensoes de check.contornos é > 1, i.e.
+  # se foi encontrado algum contorno correspondente no arquivo de conf  
+  dim.check.contornos<-dim(check.contornos)[1]
+  if(dim.check.contornos > 0){
+    contorno.GEFS1100<-trim.trailing(as.character(check.contornos$contorno_ETA))
+    bac<-trim.trailing(as.character(check.contornos$'Macro-Bacia'))
+    subbac<-trim.trailing(as.character(check.contornos$Nome))
+    #print(bac)
+    #print(subbac)
+    #print(contorno.GEFS1100)
+    texto = paste0("(",bac,") ",subbac,": ",contorno.GEFS1100)
+    print(texto)
+    write(paste0(texto),arq_log,append = TRUE)
+    
+    # para criar o arquivo input que sera utilizado para a geracao de arquivos dos modelos
+    #write.table(paste(bac,subbac,sep=";"), file = "./input_bacias.txt",append = TRUE  ,row.names = FALSE, col.names = FALSE,  sep = ";", quote = FALSE)
+    dirorigembac<-paste0(caminhoinputrem,"/",bac)
+    dirorigemsubbac<-paste0(dirorigembac,"/",subbac)
+    
+    caminhocontornos.GEFS1100<-paste0(caminhocontornos,"/",bac,"/",contorno.GEFS1100,".bln")
+    tg <- read.csv(file=paste0(caminhocontornos.GEFS1100),head=FALSE,row.names=NULL)[-1,]
+    llengthg <- length(tg$V1)
+    lonblng <- tg$V1
+    latblng <- tg$V2
+    
+    # verificacao da existencia do csv, do GFS
+    # caso exista, checa se a previsao do dia em questao existe
+    # caso nao exista, apenda no arquivo ja existente 
+    ##################
+    
+    dateciini <- as.Date(dateciend)-ntotdaysprev+1
+    datecilastfile <- as.Date(dateciend)-1
+    
+    caminhoinput.previsao<-paste0(caminhoinputrem,"/",bac,"/", subbac,"/GEFS1.csv")
+    if(!file.exists(caminhoinput.previsao)){
+      texto = "Arquivo nao existente...criar..."
+      print(texto)
+      write(paste0(texto),arq_log,append = TRUE)
+      
+      daysci <- seq(from=as.Date(dateciini), to=as.Date(dateciend),by='days' )
+      matbasin1 <- matrix(und,ntotdaysprev, 1)
+      matbasin2 <- matrix(und,ntotdaysprev, nmaxcol)
+      
+      # loop para as ultimas "ntotdausprev" cis (previsoes)      
+      countdays <- 0
+      for ( d in seq_along(daysci) )
+      {
+        countdays <- countdays + 1
+        datecifulldate <- daysci[d]
+        
+        # para cada ci, capturar dia, mes, ano dos arquivos de previsao        
+        ddcifulldate <- substring(datecifulldate, first=9, last=10)
+        mmcifulldate <- substring(datecifulldate, first=6, last=7)
+        yycifulldate <- substring(datecifulldate, first=3, last=4)
+        yyyycifulldate <- substring(datecifulldate, first=1, last=4)
+        dci <- c(ddcifulldate, mmcifulldate, yycifulldate)
+        dciyyyy <- c(yyyycifulldate, mmcifulldate,ddcifulldate,"00")
+        datecipattern <- paste(dci, collapse="")
+        datecipatternyyyy <- paste(dciyyyy, collapse="")
+        datecifile<-paste(ddcifulldate, mmcifulldate, yyyycifulldate,sep="/")
+        
+        matbasin1[countdays,1] <- datecifile
+        
+        nfile <- d
+        caminhomodelo<-caminhoprevisao.GEFS1100
+        
+        rm(files.tot)
+        rm(files)
+        files.tot <- list.files(path = caminhomodelo,pattern=paste("GEFS1_p",datecipattern,sep=""))
+        
+        if(length(files.tot) > 0){
+          # linha abaixo: -2 porque # total de dias de previsao e 14 e so vamos escrever 12 dias
+          # maior # de dias de previsao multiplo de 3 - RODA_ENSEMBLE!!
+          #files <- files.tot[1:(length(files.tot)-2)]
+          files <- files.tot[1:nmaxcol]
+          
+          if( length(files.tot) > 0 ){
+            files.full.tot <- list.files(path = caminhomodelo,pattern=paste("GEFS1_p",datecipattern,sep=""), full.names = TRUE)
+            # linha abaixo: -2 porque # total de dias de previsao e 14 e so vamos escrever 12 dias
+            # maior # de dias de previsao multiplo de 3 - RODA_ENSEMBLE!!            
+            #files.full <- files.full.tot[1:(length(files.full.tot)-2)]
+            files.full <- files.full.tot[1:nmaxcol]
+            ### LEO 4/10/2019
+            #cis<-unique(substr(files, 8, 13))
+            cis <- unique(substr(files, 7, 12))
+            #pps<-substr(files, 15, 20)
+            pps<-substr(files, 14, 19)
+            ### FIM
+            dci <- as.Date(cis, format="%d%m%y")
+            dpr <- as.Date(pps, format="%d%m%y")
+            diffdcol<-dpr-dci
+            diffdcol<-unlist(dpr-dci)+4
+            
+            dlistread<-lapply(files.full,function(x) read.table(x, header=F,col.names = c("lon","lat","pr")))
+            # subsetando pontos em ul retangulo ligeiramente maior que o contorno
+            el<-which(dlistread[[1]]$lon >= min(lonblng) & dlistread[[1]]$lon <= max(lonblng) & dlistread[[1]]$lat >= min(latblng) & dlistread[[1]]$lat <= max(latblng), arr.ind =  TRUE)
+            
+            # applying to all points in dlistread
+            dz<-lapply(dlistread,function(x) x[c(el),])
+            
+            # capturando as posicoes das linhas dentro do  bln
+            elpolyg<-which(in.polygon(dz[[1]]$lon, dz[[1]]$lat, lonblng, latblng), arr.ind = TRUE)
+            
+            # capturando os pontos dentro do poligono e fazendo a media da 3a coluna (prec)
+            dzpolyg<-lapply(dz,function(x) x[c(elpolyg),])
+            meanpolyg<-lapply(dzpolyg, function(x) mean(x[,3]))
+            matbasin2[countdays,1:nmaxcol] <- unlist(meanpolyg)
+          }
+        } 
+      }
+      matbasin2.5 <- round(matbasin2,2)
+      matbasin2.5[matbasin2.5 ==  und] <- ""
+      matbasin3 <- gsub("\\.", ",", matbasin2.5)
+      
+      dfmat <- rbind(c("","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12") , cbind(matbasin1,matbasin2))
+      dfmat2 <- rbind(c("","D1","D2","D3","D4","D5","D6","D7","D8","D9","D10","D11","D12") , cbind(matbasin1,matbasin3))
+      dfmat3 <- dfmat2[!dfmat2[,2] == "", ]
+      write.table(dfmat3 , file = caminhoinput.previsao, row.names = FALSE, col.names = FALSE,  sep = ";", quote = FALSE)
+      
+    } else{ # caso o arquivo ja exista
+      texto = "Apendar ao arquivo existente...!"
+      print(texto)
+      write(paste0(texto),arq_log,append = TRUE)
+      
+      # repetir o mesmo procedimento anterior
+      # a parte logo abaixo da rotina, checa a ultima data de previsao
+      # e procura os arquivos de previsao referente a essas datas e apenda ao arquivo existente
+      
+      df <- read.csv2(caminhoinput.previsao, header=TRUE)
+      LL<-tail(df,1)
+      LL[] <- lapply(LL, as.character)
+      date.LL<-as.Date(LL$X, format = "%d/%m/%Y")
+      diff.days <- as.Date(dateciend, format="%Y-%m-%d")-as.Date(date.LL, format="%Y-%m-%d")
+      
+      if (diff.days > 0){
+        daysci <- seq(from=as.Date(date.LL)+1, to=as.Date(dateciend),by='days' )
+        matbasin1 <- matrix(und,diff.days, 1)
+        matbasin2 <- matrix(und,diff.days, nmaxcol)
+        
+        countdays <- 0
+        for ( d in seq_along(daysci) )
+        {
+          countdays <- countdays + 1
+          datecifulldate <- daysci[d]
+          # para cada ci, monta o nome do arquivo de previsao
+          ddcifulldate <- substring(datecifulldate, first=9, last=10)
+          mmcifulldate <- substring(datecifulldate, first=6, last=7)
+          yycifulldate <- substring(datecifulldate, first=3, last=4)
+          yyyycifulldate <- substring(datecifulldate, first=1, last=4)
+          dci <- c(ddcifulldate, mmcifulldate, yycifulldate)
+          dciyyyy <- c(yyyycifulldate, mmcifulldate,ddcifulldate,"00")
+          
+          datecipattern <- paste(dci, collapse="")
+          datecipatternyyyy <- paste(dciyyyy, collapse="")
+          datecifile<-paste(ddcifulldate, mmcifulldate, yyyycifulldate,sep="/")
+          
+          matbasin1[countdays,1] <- datecifile
+          
+          nfile <- d
+          caminhomodelo<-caminhoprevisao.GEFS1100
+          
+          files.tot <- list.files(path = caminhomodelo,pattern=paste("GEFS1_p",datecipattern,sep=""))
+          # linha abaixo: -2 porque # total de dias de previsao e 14 e so vamos escrever 12 dias
+          # maior # de dias de previsao multiplo de 3 - RODA_ENSEMBLE!!
+          #files <- files.tot[1:(length(files.tot)-2)]
+          files <- files.tot[1:nmaxcol]
+          
+          if( length(files) > 0 ){
+            files.full.tot <- list.files(path = caminhomodelo,pattern=paste("GEFS1_p",datecipattern,sep=""), full.names = TRUE)
+            # linha abaixo: -2 porque # total de dias de previsao e 14 e so vamos escrever 12 dias
+            # maior # de dias de previsao multiplo de 3 - RODA_ENSEMBLE!!            
+            #files.full <- files.full.tot[1:(length(files.full.tot)-2)]
+            files.full <- files.full.tot[1:nmaxcol]
+            
+            ### LEO 4/10/2019
+            #cis<-unique(substr(files, 8, 13))
+            cis <- unique(substr(files, 7, 12))
+            #pps<-substr(files, 15, 20)
+            pps<-substr(files, 14, 19)
+            ### FIM
+            
+            dci <- as.Date(cis, format="%d%m%y")
+            dpr <- as.Date(pps, format="%d%m%y")
+            diffdcol<-dpr-dci
+            diffdcol<-unlist(dpr-dci)+4
+            
+            dlistread<-lapply(files.full,function(x) read.table(x, header=F,col.names = c("lon","lat","pr")))
+            # subsetando os pontos em uma area ligeiramente maior que a do bln
+            el<-which(dlistread[[1]]$lon >= min(lonblng) & dlistread[[1]]$lon <= max(lonblng) & dlistread[[1]]$lat >= min(latblng) & dlistread[[1]]$lat <= max(latblng), arr.ind =  TRUE)
+            # aplicando para todos os pontos de "el"
+            dz<-lapply(dlistread,function(x) x[c(el),])
+            
+            # posicao das linhas do arquivo de previsao correspontes aos pontos dentro do bln
+            elpolyg<-which(in.polygon(dz[[1]]$lon, dz[[1]]$lat, lonblng, latblng), arr.ind = TRUE)
+            
+            # pontos dentro da atea do bln 
+            dzpolyg<-lapply(dz,function(x) x[c(elpolyg),])
+            
+            # faz a media da prec (coluna 3)
+            meanpolyg<-lapply(dzpolyg, function(x) mean(x[,3]))
+            matbasin2[countdays,1:nmaxcol] <- unlist(meanpolyg)
+          } 
+        }
+        matbasin2.5 <- round(matbasin2,2)
+        matbasin2.5[matbasin2.5 ==  und] <- ""
+        matbasin3 <- gsub("\\.", ",", matbasin2.5)
+        
+        dfmat <- cbind(matbasin1,matbasin2)
+        dfmat2 <- cbind(matbasin1,matbasin3)
+        dfmat3 <- dfmat2[!dfmat2[,2] == "", ]
+        
+        if(!is.null(dim(dfmat3)[1])){
+          
+          if(dim(dfmat2)[1] != dim(dfmat3)[1]) {
+            diff.days <- diff.days - (dim(dfmat2)[1] - dim(dfmat3)[1])
+          }
+          
+        }
+        
+        write.table(matrix(dfmat3,nrow=diff.days) , file = caminhoinput.previsao ,append = TRUE  ,row.names = FALSE, col.names = FALSE,  sep = ";", quote = FALSE)
+        
+      }else{ # "{" fecha o if dif.days > 0...
+        texto = "Arquivo ja contem o ultimo dia de previsao..."
+        print(texto)
+        write(paste0(texto),arq_log,append = TRUE)
+      }
+      
+    } #else{ # caso o arquivo ja exista
+    Sys.sleep(2)
+  } else { 
+    texto = paste0("!!! ERRO !!! Dimens?o do contorno [",count.bac,"] menor que 0!")
+    print(texto)
+    write(paste0(texto),arq_log,append = TRUE)
+  }# if check.contorno
+} # fim dos loops para as bacias contidas em input.bacias.txt (count.bac)
+
+write("----------Fim do c?lculo da precipita??o m?dia do GEFS1 por bacia----------",arq_log,append = TRUE)
